@@ -31,11 +31,15 @@ impl Signer for LedgerEthereum {
         &self,
         payload: T,
     ) -> Result<Signature, Self::Error> {
-        let hash = payload
-            .encode_eip712()
+        let domain_hash = payload
+            .domain_separator()
             .map_err(|e| Self::Error::Eip712Error(e.to_string()))?;
 
-        let sig = self.sign_message(hash).await?;
+        let struct_hash = payload
+            .struct_hash()
+            .map_err(|e| Self::Error::Eip712Error(e.to_string()))?;
+
+        let sig = self.sign_typed_data(domain_hash, struct_hash).await?;
 
         Ok(sig)
     }

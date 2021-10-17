@@ -136,6 +136,63 @@ impl LedgerEthereum {
         self.sign_payload(INS::SIGN_PERSONAL_MESSAGE, payload).await
     }
 
+    /// signed Eip712 typed data
+    /// https://github.com/LedgerHQ/app-ethereum/blob/master/doc/ethapp.asc#sign-eth-eip-712
+    pub async fn sign_typed_data(&self, 
+        domain_hash: [u8; 32],
+        struct_hash: [u8; 32]
+    ) -> Result<Signature, LedgerError> {
+        // See comment for v1.6.0 requirement 
+        // https://github.com/LedgerHQ/app-ethereum/issues/105#issuecomment-765316999
+        let min_version = ">=1.6.0";
+        let req = semver::VersionReq::parse(min_version)?;
+        let version = semver::Version::parse(&self.version().await?)?;
+
+        // enforce app version is greater than 1.6.0
+        if (!req.matches(&version)) {
+            return Err(LedgerError::UnsupportedAppVersion(min_version.to_string()));
+        }
+        
+        let transport = self.transport.lock().await;
+        let mut command = APDUCommand {
+            ins: INS::SIGN_TYPED_DATA as u8,
+            p1: P1::NON_CONFIRM as u8,
+            p2: P2::NO_CHAINCODE as u8,
+            data: APDUData::new(&[]),
+            response_len: None,
+        };
+
+        let mut result = Vec::new();
+
+        // create payload;
+        let mut payload = &mut [
+            &Self::path_to_bytes(&self.derivation)[..],
+            &domain_hash[..],
+            &struct_hash[..],
+        ].concat();
+
+        // Iterate in 255 byte chunks
+        while !payload.is_empty() {
+            let chunk_size = std::cmp::min(payload.len(), 255);
+            let data = payload.drain(0..chunk_size).collect::<Vec<_>>();
+            command.data = APDUData::new(&data);
+
+            let answer = block_on(transport.exchange(&command))?;
+            result = answer
+                .data()
+                .ok_or(LedgerError::UnexpectedNullResponse)?
+                .to_vec();
+
+            // We need more data
+            command.p1 = P1::MORE as u8;
+        }
+
+        let v = result[0] as u64;
+        let r = U256::from_big_endian(&result[1..33]);
+        let s = U256::from_big_endian(&result[33..]);
+        Ok(Signature { r, s, v })
+    }
+
     // Helper function for signing either transaction data or personal messages
     pub async fn sign_payload(
         &self,

@@ -50,8 +50,7 @@ fn test_struct_hash() {
         name = "Radicle",
         version = "1",
         chain_id = 1,
-        verifying_contract = "0x0000000000000000000000000000000000000001",
-        salt = "1234567890"
+        verifying_contract = "0x0000000000000000000000000000000000000001"
     )]
     pub struct EIP712Domain {
         name: String,
